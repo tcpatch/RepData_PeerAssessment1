@@ -1,25 +1,214 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "Reproducible Research Course Project 1"
+author: "Taylor P"
+date: "March 17, 2018"
+output: html_document
+keep_md: true
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
 
-## Loading and preprocessing the data
+## Reproducible Research Course Project 1 ("PA1_template.Rmd")
 
+### Introduction
+This assignment makes use of data from a personal activity monitoring device. This device collects data at 5 minute intervals through out the day. The data consists of two months of data from an anonymous individual collected during the months of October and November, 2012 and include the number of steps taken in 5 minute intervals each day (coursera.com). This assignment will analze the data with the methods outlined in the Methods section.
 
+###Methods
+The steps of this analysis are:
 
-## What is mean total number of steps taken per day?
+1. Load and preprocess the data
 
+2. Calculate mean total number of steps taken per day
 
+3. Determine the average daily activity pattern
 
-## What is the average daily activity pattern?
+4. Impute missing values
 
+5. Determine whether there are differences in activity patterns between weekdays
+and weekends
 
+###Step 1: Load and Preprocess the Data
 
-## Imputing missing values
+This steps downloads the data from the link in the assignment and unzips the
+file if it has not been done before. Then, the file is read into memory and the
+date column is converted to date objects. The data frame is then converted to a 
+data table for subsetting rows.
+```{r load_data}
+library(data.table)
+filename <- "activity_data.zip"
+## Check if file exists and download the dataset if it hasn't
+if (!file.exists(filename)){
+  file_url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+  download.file(file_url, filename, method="auto")
+}
+## Check if the file has been unzipped and unzip it if it hasn't
+fp <- "activity.csv"
+if (!file.exists(fp)){
+  unzip(filename)
+}
+## Read in the data and convert it to a data.table
+df <- read.csv(file=fp, header=TRUE, sep=",", na.strings="NA")
+dt <- as.data.table(df)
+## Convert date to a date object
+dt$date <- as.Date(dt$date)
+## Remove NA values and store in a new data table
+no_na_dt <- na.omit(dt, col="steps")
+```
 
+###Step 2: Calculate Mean and Median Steps Per Day
+First, the total number of steps taken per day is summed. The values are plotted
+in a histogram to display the frequency of each bin. The mean and median values
+are then calculated.
+```{r steps_per_day}
+## Subset total steps per day from data table for total steps per day
+steps_per_day <- no_na_dt[, sum(steps), by=.(date)]
+## Plot a histogram of the data
+hist(steps_per_day$V1,
+     main="Distribution of Steps Per Day",
+     xlab="Number of Steps")
+## Calculate the mean
+mean_steps <- mean(steps_per_day$V1)
+print(mean_steps)
+## Calculate the median
+median_steps <- median(steps_per_day$V1)
+print(median_steps)
+```
+From the total steps per day, the mean was found to be 
+`r format(mean_steps, scientific=FALSE)` and the median was found to be `r median_steps`
 
+###Step 3: Determine the Average Daily Activity Pattern
 
-## Are there differences in activity patterns between weekdays and weekends?
+```{r daily_pattern}
+#obtain the average steps per interval
+avg_daily_steps <- no_na_dt[, mean(steps), by=.(interval)]
+#Plot a line plot of the average steps per interval
+plot(avg_daily_steps$V1 ~ avg_daily_steps$interval,
+     pch=16,
+     xlab="Interval",
+     ylab="Average Daily Steps",
+     main="The Average Steps at Each Interval Per Day",
+     type="l")
+#subset the interval containing the max number of average steps
+max_steps <- avg_daily_steps[which(avg_daily_steps$V1 == max(avg_daily_steps$V1)),]
+print(max_steps$interval)
+print(max_steps$V1)
+```
+#####Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+The average 5-minute interval contining the maximum number of steps was `r max_steps$interval` with an average number of steps equal to `r max_steps$V1`.
+
+###Step 4: Impute missing values
+There are a number of days/intervals where there are missing values (i.e. NA). These values will be imputed to determine if the presence of missing days may introduce bias into some calculations or summaries of the data.
+
+####Step 4-1: Calculate and report the total number of missing values in the dataset (i.e. the total number of rows with NAs)
+```{r missing_values}
+# count ant print the total number of missing values in this data set. In this
+# case, missing values are only in the steps column.
+missing_vals <- table(is.na(dt))
+print(missing_vals)
+```
+There are a total of `r missing_vals[2]` missing values in this data set (`r round(missing_vals[2]/(missing_vals[1] + missing_vals[2])*100, digits=2)`%). 
+
+####Step 4-2: Devise a strategy for filling in the missing values
+The strategy chosen to impute the missing values was to take the rounded mean for the interval that is missing a value.
+```{r impute_values}
+#subset all rows missing a value in steps
+nas <- is.na(dt$steps)
+missing_no <- dt[nas,]
+#add a column to the missing data to hold the imputed value
+missing_no[,imputed:=numeric()]
+#loop over each missing value and take the rounded number of steps from the 
+#same interval of the previously found average daily steps (Step 3)
+for (i in 1:length(missing_no$steps)) {
+  holder <- match(missing_no[i,3], avg_daily_steps$interval)
+  avg_value <- avg_daily_steps[holder,2]
+  rounded_avg_value <- round(avg_value, 0)
+  missing_no[i, 4] = rounded_avg_value
+}
+```
+
+####Step 4-3: Create a new dataset that is equal to the original dataset but with the missing data filled in
+The imputed values were then added to the complete observations subsetted in Step 1
+```{r compile_data}
+#combine the imputed values with the complete observations
+imputed_data <- subset(missing_no, select=c("imputed", "date", "interval"))
+setnames(imputed_data, "imputed", "steps")
+full_dt <- rbind(imputed_data, no_na_dt)
+```
+
+####Step 4-4: Recalculate Mean and Median Steps Per Day
+A histogram of the total number of steps taken each day was plotted and the mean and median total number of steps taken per day was calculated.
+```{r imputed_histogram}
+## Subset total steps per day from data table for total steps per day
+steps_per_day <- full_dt[, sum(steps), by=.(date)]
+## Plot a histogram of the data
+hist(steps_per_day$V1,
+     main="Distribution of Steps Per Day",
+     xlab="Number of Steps")
+## Calculate the mean
+imputed_mean_steps <- mean(steps_per_day$V1)
+print(mean_steps)
+## Calculate the median
+imputed_median_steps <- median(steps_per_day$V1)
+print(imputed_median_steps)
+```
+From the total steps per day, the mean was found to be 
+`r format(imputed_mean_steps, scientific=FALSE)` and the median was found to be 
+`r format(imputed_median_steps, scientific=FALSE)`.
+
+#####Do these values differ from the estimates from the first part of the assignment? 
+Both the mean and median values were slightly different from the previously calculated mean and median. Previously the mean was 
+`r format(mean_steps, scientific=FALSE)`, and the newly calculated mean was 
+`r format(imputed_mean_steps, scientific=FALSE)`. Previously the median was `r median_steps`, and the newly calculated median was `r format(imputed_median_steps, scientific=FALSE)`.
+
+#####What is the impact of imputing missing data on the estimates of the total daily number of steps?
+By imputing missing data, the estimates of the total daily number of steps decreased by both mean and median calculations.
+
+##Step 5: Determine if There are any Differences in Activity Patterns Between Weekdays and Weekends
+Using the dataset with the filled-in missing values for this part a new factor variable in the dataset was created with two levels (“weekday” and “weekend”) indicating whether a given date is a weekday or weekend day.
+```{r weekday_determination}
+#Determine which day of the week each date occurs on
+full_dt$day.of.week <- weekdays(full_dt$date)
+#If the day of the week is a saturday or sunday label that as a weekend, otherwise label as a weekday
+full_dt$day <- full_dt[, ifelse(full_dt$day.of.week=="Saturday" | full_dt$day.of.week=="Sunday", "weekend", "weekday")]
+#Remove the day.of.week column
+full_dt[,day.of.week:=NULL]
+#dispaly the first few rows of the data
+print(head(full_dt))
+```
+
+A panel plot containing a time series plot of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all weekday days or weekend days (y-axis) was plotted.
+```{r plot_weekdays}
+#Subset the weekends and weekdays
+SatSun <- full_dt[day=="weekend", mean(steps), by=.(interval)]
+MTWThF <- full_dt[day=="weekday", mean(steps), by=.(interval)]
+#Set parameters for the panel plot
+par(mfrow=c(2, 1), oma = c(5,4,0,0) + 0.1, mar = c(2,2,0.3,0) + 0.1)
+#Create the first plot of the Weekend average steps per interval
+plot.new()
+plot.window(xlim=c(min(MTWThF$interval, SatSun$interval),
+                   2500),
+            ylim=c(min(MTWThF$V1, SatSun$V1), 
+                   250))
+lines(SatSun$V1 ~ SatSun$interval, 
+     col="blue")
+axis(side=1, tick=TRUE, pos=0) 
+axis(side=2, tick=TRUE, pos=0) 
+title(main="Weekend", line=-1, font.main=1) 
+title(xlab="Interval", ylab="Number of Steps", line=1) 
+#Create the second plot of the Weekend average steps per interval
+plot.new()
+plot.window(xlim=c(min(MTWThF$interval, SatSun$interval),
+                   2500),
+            ylim=c(min(MTWThF$V1, SatSun$V1), 
+                   250))
+lines(MTWThF$V1 ~ MTWThF$interval, 
+     col="blue")
+axis(side=1, tick=TRUE, pos=0) 
+axis(side=2, tick=TRUE, pos=0) 
+title(main="Weekend", line=-1, font.main=1) 
+title(xlab="Interval", ylab="Number of Steps", line=1) 
+```
+
+The main difference between weekends and weekdays is that weekdays typically start with a higher spike in total steps followed by a a period of lower total steps when compared to weekends. Weekends have a high spike early in the day, but is then followed with prolonged intervals of higher steps when compared to weekdays.
